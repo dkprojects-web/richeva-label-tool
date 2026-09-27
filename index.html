@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<!--
+  Label Branding Tool
+  © Richeva Collection — built for Richeva Collection.
+  Please do not redistribute or modify without permission.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Label Branding Tool</title>
+<style>
+  :root{
+    --bg:#f7f5ff; --card:#ffffff; --text:#1f1330; --muted:#6b6178;
+    --accent:#7c3aed; --border:#e3ddf5;
+    box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){ --bg:#171225; --card:#231b38; --text:#f1edfb; --muted:#a79fc0; --border:#3a3054; }
+  }
+  :root[data-theme="dark"]{ --bg:#171225; --card:#231b38; --text:#f1edfb; --muted:#a79fc0; --border:#3a3054; }
+  html{scroll-padding-top:env(safe-area-inset-top,0px);}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:24px 16px 48px;}
+  .card{max-width:520px;margin:0 auto;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:24px;}
+  h1{font-size:20px;margin:0 0 4px;}
+  p.sub{color:var(--muted);font-size:13px;margin:0 0 20px;}
+  label{display:block;font-size:13px;font-weight:600;margin:16px 0 6px;}
+  input[type=text],input[type=url]{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:transparent;color:var(--text);font-size:14px;}
+  input[type=file]{width:100%;font-size:13px;color:var(--text);}
+  input[type=range]{width:100%;accent-color:var(--accent);}
+  input[type=color]{width:48px;height:36px;border:none;background:none;padding:0;}
+  .row{display:flex;align-items:center;gap:10px;}
+  .row span{font-size:12px;color:var(--muted);min-width:70px;}
+  button{margin-top:22px;width:100%;padding:13px;border:none;border-radius:12px;background:var(--accent);color:#fff;font-size:15px;font-weight:600;cursor:pointer;}
+  button:disabled{opacity:0.6;}
+  #status{margin-top:12px;font-size:13px;color:var(--muted);min-height:18px;}
+  #downloadLink{display:none;margin-top:14px;text-align:center;padding:12px;border-radius:10px;background:#16a34a;color:#fff;text-decoration:none;font-weight:600;font-size:14px;}
+</style>
+</head>
+<body>
+  <div class="card" id="lockScreen">
+    <h1>🔒 Locked</h1>
+    <p class="sub">Enter the password to open this tool.</p>
+    <input type="password" id="pwInput" placeholder="Password" style="margin-bottom:4px;">
+    <div id="pwError" style="color:#ef4444;font-size:12px;min-height:16px;"></div>
+    <button id="pwBtn">Unlock</button>
+  </div>
+
+  <div class="card" id="mainCard" style="display:none;">
+    <h1>🏷️ Label Branding Tool</h1>
+    <p class="sub">Upload your PDF, enter your store URL — QR code + branding gets added to every label automatically.</p>
+
+    <label>Label PDF</label>
+    <input type="file" id="pdfFile" accept="application/pdf">
+
+    <label>Store URL (Meesho store link)</label>
+    <input type="url" id="storeUrl" placeholder="https://meesho.com/yourstorename">
+
+    <label>Store Name (optional)</label>
+    <input type="text" id="storeName" placeholder="e.g. My Fashion Store">
+
+    <div class="row">
+      <div>
+        <label>Accent Color</label>
+        <input type="color" id="accentColor" value="#7c3aed">
+      </div>
+      <div style="flex:1">
+        <label>Vertical Position <span id="posYVal">88%</span></label>
+        <input type="range" id="posY" min="50" max="97" value="88">
+      </div>
+    </div>
+
+    <label>QR Size <span id="qrSizeVal">90pt</span></label>
+    <input type="range" id="qrSize" min="50" max="140" value="90">
+
+    <button id="processBtn">Generate Branded PDF</button>
+    <div id="status"></div>
+    <button id="downloadBtn" style="display:none;background:#16a34a;">⬇ Download Branded PDF</button>
+    <p style="text-align:center;margin:18px 0 0;font-size:11px;color:var(--muted);">Made with 🛍️ by <strong>Richeva Collection</strong></p>
+  </div>
+
+  <div id="qrHolder" style="display:none"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script>
+    // Remember store details on this device only (per-browser, private to whoever opens this page)
+    (function () {
+      try {
+        const saved = JSON.parse(localStorage.getItem('labelToolSettings') || '{}');
+        if (saved.storeUrl) storeUrl.value = saved.storeUrl;
+        if (saved.storeName) storeName.value = saved.storeName;
+        if (saved.accentColor) accentColor.value = saved.accentColor;
+        if (saved.posY) { posY.value = saved.posY; }
+        if (saved.qrSize) { qrSize.value = saved.qrSize; }
+        posYVal.textContent = posY.value + '%';
+        qrSizeVal.textContent = qrSize.value + 'pt';
+      } catch (e) {}
+      function persist() {
+        try {
+          localStorage.setItem('labelToolSettings', JSON.stringify({
+            storeUrl: storeUrl.value.trim(),
+            storeName: storeName.value.trim(),
+            accentColor: accentColor.value,
+            posY: posY.value,
+            qrSize: qrSize.value
+          }));
+        } catch (e) {}
+      }
+      [storeUrl, storeName, accentColor, posY, qrSize].forEach(el => {
+        el.addEventListener('change', persist);
+        el.addEventListener('input', persist);
+      });
+    })();
+
+    // Password gate — hash stored, not plaintext
+    (async function () {
+      const CORRECT_HASH = 'c15be061109322a098148e2ea50012e75788654b452ee9b5b634a5e246be98f0';
+      const lockScreen = document.getElementById('lockScreen');
+      const mainCard = document.getElementById('mainCard');
+      const pwInput = document.getElementById('pwInput');
+      const pwBtn = document.getElementById('pwBtn');
+      const pwError = document.getElementById('pwError');
+
+      async function sha256(text) {
+        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+        return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+      }
+
+      // Stay unlocked on this device for convenience
+      try {
+        if (sessionStorage.getItem('labelToolUnlocked') === '1') {
+          lockScreen.style.display = 'none';
+          mainCard.style.display = 'block';
+        }
+      } catch (e) {}
+
+      async function tryUnlock() {
+        const hash = await sha256(pwInput.value);
+        if (hash === CORRECT_HASH) {
+          lockScreen.style.display = 'none';
+          mainCard.style.display = 'block';
+          try { sessionStorage.setItem('labelToolUnlocked', '1'); } catch (e) {}
+        } else {
+          pwError.textContent = 'Incorrect password.';
+        }
+      }
+      pwBtn.onclick = tryUnlock;
+      pwInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryUnlock(); });
+    })();
+
+    posY.oninput = () => posYVal.textContent = posY.value + '%';
+
+    function buildStoreIconSvg(colorHex) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="-1 -5 22 22">
+  <path fill="${colorHex}" d="M2.97 1.35A1 1 0 0 1 3.73 1h8.54a1 1 0 0 1 .76.35l2.609 3.044A1.5 1.5 0 0 1 16 5.37v.255a2.375 2.375 0 0 1-4.25 1.458A2.37 2.37 0 0 1 9.875 8 2.37 2.37 0 0 1 8 7.083 2.37 2.37 0 0 1 6.125 8a2.37 2.37 0 0 1-1.875-.917A2.375 2.375 0 0 1 0 5.625V5.37a1.5 1.5 0 0 1 .361-.976zm1.78 4.275a1.375 1.375 0 0 0 2.75 0 .5.5 0 0 1 1 0 1.375 1.375 0 0 0 2.75 0 .5.5 0 0 1 1 0 1.375 1.375 0 1 0 2.75 0V5.37a.5.5 0 0 0-.12-.325L12.27 2H3.73L1.12 5.045A.5.5 0 0 0 1 5.37v.255a1.375 1.375 0 0 0 2.75 0 .5.5 0 0 1 1 0M1.5 8.5A.5.5 0 0 1 2 9v6h1v-5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v5h6V9a.5.5 0 0 1 1 0v6h.5a.5.5 0 0 1 0 1H.5a.5.5 0 0 1 0-1H1V9a.5.5 0 0 1 .5-.5M4 15h3v-5H4zm5-5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1zm3 0h-2v3h2z"/>
+  <circle cx="14" cy="3" r="6.8" fill="#ffffff"/>
+  <g transform="translate(9,-3) scale(0.62)"><path fill="${colorHex}" d="M8 16s6-5.686 6-10A6 6 0 0 0 2 6c0 4.314 6 10 6 10m0-7a3 3 0 1 1 0-6 3 3 0 0 1 0 6"/></g>
+</svg>`;
+    }
+    function loadImage(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+      });
+    }
+    async function renderStoreIconPng(colorHex, size) {
+      const svg = buildStoreIconSvg(colorHex);
+      const svgUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+      const img = await loadImage(svgUrl);
+      const c = document.createElement('canvas');
+      c.width = size; c.height = size;
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, size, size);
+      ctx.drawImage(img, 0, 0, size, size);
+      return c.toDataURL('image/png');
+    }
+    function dataUrlToBytes(dataUrl) {
+      const base64Data = dataUrl.split(',')[1];
+      const binaryStr = atob(base64Data);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+      return bytes;
+    }
+    qrSize.oninput = () => qrSizeVal.textContent = qrSize.value + 'pt';
+
+    let generatedBytes = null;
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    downloadBtn.onclick = async () => {
+      const status = document.getElementById('status');
+      if (!generatedBytes) return;
+      try {
+        const blob = new Blob([generatedBytes], { type: 'application/pdf' });
+        if (typeof claude !== 'undefined' && claude && claude.use) {
+          const downloads = await claude.use('downloads');
+          if (downloads) {
+            const res = await downloads.save({ filename: 'branded-labels.pdf', data: blob });
+            status.textContent = res.status === 'saved' ? '✅ File saved successfully.' : '✅ File delivered.';
+            return;
+          }
+        }
+        // Fallback: plain browser download
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'branded-labels.pdf';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        status.textContent = '✅ File download started.';
+      } catch (e) {
+        if (e && e.code === 'declined') status.textContent = 'Save cancelled.';
+        else status.textContent = 'Download error: ' + (e && e.message ? e.message : e);
+      }
+    };
+
+    processBtn.onclick = async () => {
+      const status = document.getElementById('status');
+      downloadBtn.style.display = 'none';
+      generatedBytes = null;
+      try {
+        const file = pdfFile.files[0];
+        if (!file) { status.textContent = 'Please upload a PDF file first.'; return; }
+        const url = storeUrl.value.trim();
+        if (!url) { status.textContent = 'Please enter your store URL.'; return; }
+        processBtn.disabled = true;
+        status.textContent = 'Processing...';
+
+        const qrHolder = document.getElementById('qrHolder');
+        qrHolder.innerHTML = '';
+        await new Promise((resolve) => {
+          new QRCode(qrHolder, { text: url, width: 300, height: 300, correctLevel: QRCode.CorrectLevel.M });
+          setTimeout(resolve, 250);
+        });
+        let qrDataUrl;
+        const canvas = qrHolder.querySelector('canvas');
+        if (canvas) qrDataUrl = canvas.toDataURL('image/png');
+        else qrDataUrl = qrHolder.querySelector('img').src;
+        const qrBytes = dataUrlToBytes(qrDataUrl);
+        const iconDataUrl = await renderStoreIconPng(accentColor.value, 200);
+        const iconBytes = dataUrlToBytes(iconDataUrl);
+
+        const pdfBytes = await file.arrayBuffer();
+        const { PDFDocument, rgb, StandardFonts } = PDFLib;
+        const pdfDoc = await PDFDocument.load(pdfBytes);
+        const qrImage = await pdfDoc.embedPng(qrBytes);
+        const iconImage = await pdfDoc.embedPng(iconBytes);
+        const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        const fontReg = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+        const hex = accentColor.value;
+        const r = parseInt(hex.slice(1,3),16)/255, g = parseInt(hex.slice(3,5),16)/255, b = parseInt(hex.slice(5,7),16)/255;
+        const lr = r + (1 - r) * 0.90, lg = g + (1 - g) * 0.90, lb = b + (1 - b) * 0.90;
+        const qrSizeVal2 = parseInt(qrSize.value);
+        const posFrac = parseInt(posY.value)/100;
+        const storeNameVal = storeName.value.trim();
+
+        const pages = pdfDoc.getPages();
+        for (const page of pages) {
+          const { width, height } = page.getSize();
+          const boxH = qrSizeVal2 + 30;
+          const boxY = Math.max(10, height * (1 - posFrac) - boxH / 2);
+          page.drawRectangle({ x: 10, y: boxY, width: width - 20, height: boxH, color: rgb(lr, lg, lb), borderColor: rgb(r,g,b), borderWidth: 1.3 });
+          page.drawRectangle({ x: 10, y: boxY, width: width - 20, height: 3, color: rgb(r,g,b) });
+
+          const qrX = width - qrSizeVal2 - 24;
+          const qrY = boxY + (boxH - qrSizeVal2) / 2;
+          page.drawImage(qrImage, { x: qrX, y: qrY, width: qrSizeVal2, height: qrSizeVal2 });
+
+          const iconSize = qrSizeVal2;
+          const iconX = 20;
+          let textX = iconX + iconSize + 10;
+          let textY = boxY + boxH/2 + (storeNameVal ? 9 : -3);
+          page.drawImage(iconImage, { x: iconX, y: boxY + boxH/2 - iconSize/2, width: iconSize, height: iconSize });
+          if (storeNameVal) {
+            page.drawText(storeNameVal, { x: textX, y: textY, size: 17, font, color: rgb(r,g,b) });
+            textY -= 20;
+          }
+          page.drawText('Scan & shop more at our store', { x: textX, y: textY, size: 10, font: fontReg, color: rgb(0.35,0.35,0.35) });
+        }
+
+        generatedBytes = await pdfDoc.save();
+        downloadBtn.style.display = 'block';
+        status.textContent = `✅ Done — branding added to ${pages.length} label(s). Click download below.`;
+      } catch (e) {
+        status.textContent = 'Error: ' + e.message;
+      } finally {
+        processBtn.disabled = false;
+      }
+    };
+  </script>
+</body>
+</html>

@@ -1,8 +1,4 @@
 <!DOCTYPE html>
-<!--
- 
-  
--->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -35,18 +31,14 @@
   button:disabled{opacity:0.6;}
   #status{margin-top:12px;font-size:13px;color:var(--muted);min-height:18px;}
   #downloadLink{display:none;margin-top:14px;text-align:center;padding:12px;border-radius:10px;background:#16a34a;color:#fff;text-decoration:none;font-weight:600;font-size:14px;}
+  .hint{font-size:11px;color:var(--muted);margin:4px 0 0;}
+  #logoPreviewWrap{display:none;align-items:center;gap:12px;margin-top:10px;}
+  #logoPreview{width:56px;height:56px;object-fit:contain;border:1px solid var(--border);border-radius:10px;background:#fff;padding:3px;}
+  #logoRemoveBtn{margin:0;width:auto;padding:8px 14px;font-size:12px;background:#ef4444;border-radius:10px;}
 </style>
 </head>
 <body>
-  <div class="card" id="lockScreen">
-    <h1>🔒 Locked</h1>
-    <p class="sub">Enter the password to open this tool.</p>
-    <input type="password" id="pwInput" placeholder="Password" style="margin-bottom:4px;">
-    <div id="pwError" style="color:#ef4444;font-size:12px;min-height:16px;"></div>
-    <button id="pwBtn">Unlock</button>
-  </div>
-
-  <div class="card" id="mainCard" style="display:none;">
+  <div class="card">
     <h1>🏷️ Label Branding Tool</h1>
     <p class="sub">Upload your PDF, enter your store URL — QR code + branding gets added to every label automatically.</p>
 
@@ -58,6 +50,14 @@
 
     <label>Store Name (optional)</label>
     <input type="text" id="storeName" placeholder="e.g. My Fashion Store">
+
+    <label>Brand Logo (optional)</label>
+    <input type="file" id="logoFile" accept="image/png,image/jpeg,image/webp,image/svg+xml">
+    <p class="hint">Logo upload karso to shop icon ni jagya e tamaro logo aavse. Na upload karo to shop icon j aavse.</p>
+    <div id="logoPreviewWrap">
+      <img id="logoPreview" alt="Logo preview">
+      <button type="button" id="logoRemoveBtn">Logo hatavo</button>
+    </div>
 
     <div class="row">
       <div>
@@ -76,7 +76,6 @@
     <button id="processBtn">Generate Branded PDF</button>
     <div id="status"></div>
     <button id="downloadBtn" style="display:none;background:#16a34a;">⬇ Download Branded PDF</button>
-    <p style="text-align:center;margin:18px 0 0;font-size:11px;color:var(--muted);">Made with 🛍️ by <strong>Richeva Collection</strong></p>
   </div>
 
   <div id="qrHolder" style="display:none"></div>
@@ -84,6 +83,68 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script>
+    let logoDataUrl = null;
+    let logoAspect = 1;
+
+    function loadImage(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+      });
+    }
+    function showLogoPreview() {
+      if (logoDataUrl) {
+        logoPreview.src = logoDataUrl;
+        logoPreviewWrap.style.display = 'flex';
+      } else {
+        logoPreview.removeAttribute('src');
+        logoPreviewWrap.style.display = 'none';
+      }
+    }
+    try {
+      const savedLogo = JSON.parse(localStorage.getItem('labelToolLogo') || 'null');
+      if (savedLogo && savedLogo.dataUrl) {
+        logoDataUrl = savedLogo.dataUrl;
+        logoAspect = savedLogo.aspect || 1;
+        showLogoPreview();
+      }
+    } catch (e) {}
+
+    logoFile.addEventListener('change', async () => {
+      const f = logoFile.files[0];
+      const status = document.getElementById('status');
+      if (!f) return;
+      try {
+        const objUrl = URL.createObjectURL(f);
+        const img = await loadImage(objUrl);
+        const natW = img.naturalWidth || img.width || 400;
+        const natH = img.naturalHeight || img.height || 400;
+        const scale = Math.min(1, 500 / Math.max(natW, natH));
+        const w = Math.max(1, Math.round(natW * scale));
+        const h = Math.max(1, Math.round(natH * scale));
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(objUrl);
+        logoDataUrl = c.toDataURL('image/png');
+        logoAspect = w / h;
+        showLogoPreview();
+        status.textContent = '✅ Logo add thai gayo.';
+        try { localStorage.setItem('labelToolLogo', JSON.stringify({ dataUrl: logoDataUrl, aspect: logoAspect })); } catch (e) {}
+      } catch (e) {
+        status.textContent = 'Logo load nathi thayo. Bijo image (PNG/JPG) try karo.';
+      }
+    });
+    logoRemoveBtn.onclick = () => {
+      logoDataUrl = null;
+      logoAspect = 1;
+      logoFile.value = '';
+      showLogoPreview();
+      try { localStorage.removeItem('labelToolLogo'); } catch (e) {}
+    };
+
     // Remember store details on this device only (per-browser, private to whoever opens this page)
     (function () {
       try {
@@ -113,42 +174,6 @@
       });
     })();
 
-    // Password gate — hash stored, not plaintext
-    (async function () {
-      const CORRECT_HASH = 'c7cf4d8b89c0cb83c8e828aaae63620552ef5e2174556cb5bf6ebc7a858df976';
-      const lockScreen = document.getElementById('lockScreen');
-      const mainCard = document.getElementById('mainCard');
-      const pwInput = document.getElementById('pwInput');
-      const pwBtn = document.getElementById('pwBtn');
-      const pwError = document.getElementById('pwError');
-
-      async function sha256(text) {
-        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-        return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-      }
-
-      // Stay unlocked on this device for convenience
-      try {
-        if (sessionStorage.getItem('labelToolUnlocked') === '1') {
-          lockScreen.style.display = 'none';
-          mainCard.style.display = 'block';
-        }
-      } catch (e) {}
-
-      async function tryUnlock() {
-        const hash = await sha256(pwInput.value);
-        if (hash === CORRECT_HASH) {
-          lockScreen.style.display = 'none';
-          mainCard.style.display = 'block';
-          try { sessionStorage.setItem('labelToolUnlocked', '1'); } catch (e) {}
-        } else {
-          pwError.textContent = 'Incorrect password.';
-        }
-      }
-      pwBtn.onclick = tryUnlock;
-      pwInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryUnlock(); });
-    })();
-
     posY.oninput = () => posYVal.textContent = posY.value + '%';
 
     function buildStoreIconSvg(colorHex) {
@@ -157,14 +182,6 @@
   <circle cx="14" cy="3" r="6.8" fill="#ffffff"/>
   <g transform="translate(9,-3) scale(0.62)"><path fill="${colorHex}" d="M8 16s6-5.686 6-10A6 6 0 0 0 2 6c0 4.314 6 10 6 10m0-7a3 3 0 1 1 0-6 3 3 0 0 1 0 6"/></g>
 </svg>`;
-    }
-    function loadImage(src) {
-      return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = reject;
-        img.src = src;
-      });
     }
     async function renderStoreIconPng(colorHex, size) {
       const svg = buildStoreIconSvg(colorHex);
@@ -239,7 +256,8 @@
         if (canvas) qrDataUrl = canvas.toDataURL('image/png');
         else qrDataUrl = qrHolder.querySelector('img').src;
         const qrBytes = dataUrlToBytes(qrDataUrl);
-        const iconDataUrl = await renderStoreIconPng(accentColor.value, 200);
+        const useLogo = !!logoDataUrl;
+        const iconDataUrl = useLogo ? logoDataUrl : await renderStoreIconPng(accentColor.value, 200);
         const iconBytes = dataUrlToBytes(iconDataUrl);
 
         const pdfBytes = await file.arrayBuffer();
@@ -269,11 +287,15 @@
           const qrY = boxY + (boxH - qrSizeVal2) / 2;
           page.drawImage(qrImage, { x: qrX, y: qrY, width: qrSizeVal2, height: qrSizeVal2 });
 
-          const iconSize = qrSizeVal2;
+          let iconW = qrSizeVal2, iconH = qrSizeVal2;
+          if (useLogo) {
+            if (logoAspect >= 1) { iconH = qrSizeVal2 / logoAspect; }
+            else { iconW = qrSizeVal2 * logoAspect; }
+          }
           const iconX = 20;
-          let textX = iconX + iconSize + 10;
+          let textX = iconX + iconW + 10;
           let textY = boxY + boxH/2 + (storeNameVal ? 9 : -3);
-          page.drawImage(iconImage, { x: iconX, y: boxY + boxH/2 - iconSize/2, width: iconSize, height: iconSize });
+          page.drawImage(iconImage, { x: iconX, y: boxY + boxH/2 - iconH/2, width: iconW, height: iconH });
           if (storeNameVal) {
             page.drawText(storeNameVal, { x: textX, y: textY, size: 17, font, color: rgb(r,g,b) });
             textY -= 20;
